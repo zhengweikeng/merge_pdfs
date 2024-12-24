@@ -15,7 +15,7 @@ def natural_sort_key(s):
     # 使用正则表达式分割字符串，保留数字和非数字部分
     return [convert(c) for c in re.split('([0-9]+)', s)]
 
-def get_all_pdfs(input_dir, parent_bookmark=None):
+def get_all_pdfs(input_dir, parent_bookmark=None, include_files=None, exclude_files=None):
     """递归获取所有PDF文件的路径和对应的书签结构"""
     pdf_structure = []
     
@@ -29,8 +29,16 @@ def get_all_pdfs(input_dir, parent_bookmark=None):
         if os.path.isdir(full_path):
             all_items.append(('folder', item, full_path))
         elif item.endswith('.pdf'):
+            # 检查是否应该包含此文件
+            if include_files and item not in include_files:
+                continue
+            # 检查是否应该排除此文件
+            if exclude_files and item in exclude_files:
+                continue
+                
             all_items.append(('pdf', item, full_path))
     
+    # 使用自然排序对所有项目进行排序
     all_items.sort(key=lambda x: natural_sort_key(x[1]))
     
     # 统一处理文件和文件夹
@@ -50,7 +58,7 @@ def get_all_pdfs(input_dir, parent_bookmark=None):
                 folder_bookmark = f"{parent_bookmark}/{folder_bookmark}"
             
             # 递归处理子文件夹，传入当前文件夹名作为父书签
-            sub_pdfs = get_all_pdfs(item_path, folder_bookmark)
+            sub_pdfs = get_all_pdfs(item_path, folder_bookmark, include_files, exclude_files)
             if sub_pdfs:  # 只有当子文件夹中有PDF文件时才添加
                 # 添加文件夹作为父书签
                 pdf_structure.append({
@@ -89,7 +97,7 @@ def add_cover_page(merger, cover_path):
     merger.append(fileobj=img_byte_arr)
     return True
 
-def merge_pdfs(input_dir, output_file):
+def merge_pdfs(input_dir, output_file, include_files=None, exclude_files=None):
     # 检查输出文件是否已存在
     if os.path.exists(output_file):
         print(f"错误：输出文件 '{output_file}' 已存在。")
@@ -106,8 +114,8 @@ def merge_pdfs(input_dir, output_file):
         has_cover = add_cover_page(merger, cover_path)
         print(f"已添加封面图片：{cover_path}")
     
-    # 获取所有PDF文件及其书签结构
-    pdf_files = get_all_pdfs(input_dir)
+    # 获取所有PDF文件及其书签结构，传入include和exclude参数
+    pdf_files = get_all_pdfs(input_dir, include_files=include_files, exclude_files=exclude_files)
     
     # 用于跟踪页面编号
     current_page = 1 if has_cover else 0  # 如果有封面，从第2页开始计数
@@ -165,6 +173,12 @@ def parse_arguments():
     parser.add_argument('-o', '--output',
                         default='merged_output.pdf',
                         help='输出文件名，默认为 merged_output.pdf')
+    parser.add_argument('--include',
+                        nargs='+',
+                        help='指定要包含的PDF文件名列表（需要包含.pdf后缀）')
+    parser.add_argument('--exclude',
+                        nargs='+',
+                        help='指定要排除的PDF文件名列表（需要包含.pdf后缀）')
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -185,5 +199,5 @@ if __name__ == "__main__":
         os.makedirs(input_directory)
         print(f"已创建输入目录：{input_directory}")
     
-    # 执行合并操作
-    merge_pdfs(input_directory, output_pdf) 
+    # 执行合并操作，传入include和exclude参数
+    merge_pdfs(input_directory, output_pdf, args.include, args.exclude) 
