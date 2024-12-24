@@ -1,4 +1,4 @@
-from pypdf import PdfWriter
+from pypdf import PdfWriter, PdfReader
 import os
 import re
 from PIL import Image
@@ -27,7 +27,7 @@ def get_all_pdfs(input_dir, parent_bookmark=None, include_files=None, exclude_fi
     for item in items:
         full_path = os.path.join(input_dir, item)
         if os.path.isdir(full_path):
-            all_items.append(('folder', item, full_path))
+            all_items.append(('folder', item, full_path, False))
         elif item.endswith('.pdf'):
             # 检查是否应该包含此文件
             if include_files and item not in include_files:
@@ -35,21 +35,23 @@ def get_all_pdfs(input_dir, parent_bookmark=None, include_files=None, exclude_fi
             # 检查是否应该排除此文件
             if exclude_files and item in exclude_files:
                 continue
-                
-            all_items.append(('pdf', item, full_path))
+
+            hasToC = isPdfHasTableOfContents(full_path)
+            all_items.append(('pdf', item, full_path, hasToC))
     
     # 使用自然排序对所有项目进行排序
     all_items.sort(key=lambda x: natural_sort_key(x[1]))
-    
+
     # 统一处理文件和文件夹
-    for item_type, item_name, item_path in all_items:
+    for item_type, item_name, item_path, hasToC in all_items:
         if item_type == 'pdf':
             # 处理PDF文件
             bookmark_name = os.path.splitext(item_name)[0]
             pdf_structure.append({
                 'path': item_path,
                 'bookmark': bookmark_name,
-                'parent': parent_bookmark
+                'parent': parent_bookmark,
+                'hasToC': hasToC
             })
         else:
             # 处理文件夹，将文件夹名作为父书签
@@ -65,7 +67,8 @@ def get_all_pdfs(input_dir, parent_bookmark=None, include_files=None, exclude_fi
                     'path': None,  # 文件夹没有对应的PDF文件
                     'bookmark': item_name,
                     'parent': parent_bookmark,
-                    'is_folder': True
+                    'is_folder': True,
+                    'hasToC': hasToC
                 })
                 pdf_structure.extend(sub_pdfs)
     
@@ -96,6 +99,12 @@ def add_cover_page(merger, cover_path):
     # 将封面添加到PDF
     merger.append(fileobj=img_byte_arr)
     return True
+
+def isPdfHasTableOfContents(pdf_path):
+    """检查PDF文件是否包含目录"""
+    with open(pdf_path, 'rb') as pdf_file:
+        reader = PdfReader(pdf_file)
+        return reader.outline
 
 def merge_pdfs(input_dir, output_file, include_files=None, exclude_files=None):
     # 检查输出文件是否已存在
@@ -136,6 +145,7 @@ def merge_pdfs(input_dir, output_file, include_files=None, exclude_files=None):
     for pdf_info in pdf_files:
         bookmark_name = pdf_info['bookmark']
         parent_name = pdf_info['parent']
+        hasToC = pdf_info['hasToC']
         
         # 获取父书签对象
         parent_bookmark = bookmarks.get(parent_name) if parent_name else None
@@ -150,11 +160,13 @@ def merge_pdfs(input_dir, output_file, include_files=None, exclude_files=None):
             bookmarks[pdf_info['parent'] + '/' + bookmark_name if parent_name else bookmark_name] = bookmark
         else:
             # 为PDF文件创建书签（叶子节点）
-            merger.add_outline_item(
-                bookmark_name,
-                pdf_info['page_number'],
-                parent=parent_bookmark
-            )
+            print(f"正在处理pdf: {bookmark_name}, {parent_bookmark}")
+            if not hasToC:
+                merger.add_outline_item(
+                    bookmark_name,
+                    pdf_info['page_number'],
+                    parent=parent_bookmark
+                )
     
     # 将合并后的文件保存到输出路径
     with open(output_file, 'wb') as output:
